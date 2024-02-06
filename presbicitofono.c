@@ -1,5 +1,5 @@
 //!sdcc "%file%"
-//!xcopy/y "%name%".ihx "%name%".hex
+//!xcopy/y "%name%".ihx "%name%".hex*
 #include "STC15F2K60S2.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -9,16 +9,18 @@
 #define CMD_READ    	1
 #define BV(x) (1<<(x))
 #define _nop_() __asm nop __endasm
-#define LED		P55
-#define BUTTON		P32	//INT0
+#define LED						P55
+#define RADIO_VT			P32	//INT0
+#define RADIO_D11		P37
+#define BUTTON				P33	//INT1
 #define BUZZER_PLUS	P10
 #define BUZZER_MINUS	P11
 
-volatile bool f1ms,playing=false,stop=true;
+volatile bool f1ms,stop=true;
 volatile unsigned millis=0;
 volatile unsigned short tVal;
 int nSongs,nBlinks=0;
-bool rxRemote=false, buttonPressed=false;
+bool rxRemote=false, buttonPressed=false, playing=false;
 
 void powerDown(bool blinking) {
 	LED=0;
@@ -33,15 +35,21 @@ void powerDown(bool blinking) {
 
 void LVD(void) __interrupt(6) __using(1) {
 	EX0=0;			//disable INT0
+	EX1=0;			//disable INT1
+	WKTCH=0;
 	powerDown(false);
 }
 
 void int0(void) __interrupt(0) __using(1) {
-	rxRemote=true;
+	if (RADIO_D11==0)
+		rxRemote=true;
+	else
+		powerDown(false);
 }
 
 void int1(void) __interrupt(2) __using(1) {
 	stop=true;
+	buttonPressed=true;
 }
 
 void IapIdle(void) {
@@ -102,7 +110,8 @@ void tm0(void) __interrupt(1) __using(1) {
 	f1ms=true;
 	millis++;
 	
-	LED=(millis&0x1FF)>0x1EF;
+	if (playing)
+		LED=(millis&0x1FF)>0x1EF;
 	
 	TL0=0xCD;		//Initial timer value
 	TH0=0xD4;
@@ -119,6 +128,7 @@ void play(int n) {
 	int i=IapReadWord(2+2*n);
 	stop=false;
 	nBlinks=0;
+	playing=true;
 	while (!stop) {
 		uint16_t t=IapReadWord(i),
 			duration=IapReadWord(i+2);
@@ -132,6 +142,8 @@ void play(int n) {
 		Delay1ms(50);
 		i+=4;
 	}
+	playing=false;
+	buttonPressed=false;
 }
 
 void main(void) {
@@ -155,42 +167,8 @@ void main(void) {
 	EX0=1;			//enable INT0
 	EX1=1;			//enable INT1
 	EA=1;			//enable interrupts
-
-	/*while (true) {
-		LED=1;
-		Delay1ms(100);
-		LED=0;
-		WKTCL=0x00;
-		WKTCH=0x8F;
-		PCON|=BV(1);
-		//~ Delay1ms(400);
-	}*/
-
-	/*for (;;) {
-		LED=P32;
-		if (P32) {
-			for (int i=0;i<500;i++) {
-				Delay1ms(1);
-				P10=1;
-				P11=0;
-				Delay1ms(1);
-				P10=0;
-				P11=1;
-			}
-		}
-	}*/
 	
 	nSongs=IapReadWord(0);
-	
-	tVal=52969U;//440Hz
-	AUXR|=BV(4);
-	Delay1ms(100);
-	AUXR&=~BV(4);
-	Delay1ms(50);
-	tVal=59252U;//880Hz
-	AUXR|=BV(4);
-	Delay1ms(250);
-	AUXR&=~BV(4);
 	
 	for (;;) {
 		powerDown(!stop);
@@ -199,23 +177,23 @@ void main(void) {
 			buttonPressed=false;
 			continue;
 		}
-		else if (rxRemote) 
+		else if (rxRemote)  {
 			rxRemote=false;
+			buttonPressed=false;
+		}
 		else {
 			LED=1;
 			Delay1ms(100);
 			LED=0;
 			if (++nBlinks==86)	//5 minutes
-				WKTCH=0;	//disable wakeup timer
+				stop=true;
 			continue;
 		}
 		Delay1ms(500);
 		int n=TL0^TH0;
 		n=modulo(n,nSongs);
 		millis=0;
-		playing=true;
 		play(n);
-		playing=false;
 		Delay1ms(500);
 	}
 }
