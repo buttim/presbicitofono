@@ -1,3 +1,4 @@
+*.amf
 *.exe
 *.hex
 *.asm
@@ -11,3 +12,4 @@
 *.rel
 *.rst
 *.sym
+*.FCStd1
