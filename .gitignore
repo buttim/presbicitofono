@@ -13,3 +13,5 @@
 *.rst
 *.sym
 *.FCStd1
+presbiLed/build/
+hardware/presbicitofono/presbicitofono-backups/
